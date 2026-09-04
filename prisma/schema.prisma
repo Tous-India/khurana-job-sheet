@@ -1,0 +1,116 @@
+// Khurana Electronics — Digital Job Sheet Portal
+// Schema per README section 8.
+//
+// PostgreSQL, NOT SQLite: this app deploys to Vercel, whose filesystem is read-only and
+// ephemeral. A SQLite file would be destroyed on every deploy and cold start, losing all
+// job sheets. Use Neon (neon.tech) or Supabase (supabase.com) — both free tier.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// Prisma 7 no longer accepts `url` here — the connection string lives in
+// prisma.config.ts (for migrations) and reaches the client via the pg driver
+// adapter in src/lib/prisma.ts.
+datasource db {
+  provider = "postgresql"
+}
+
+model Engineer {
+  id        String     @id @default(cuid())
+  name      String
+  phone     String?
+  active    Boolean    @default(true)
+  jobSheets JobSheet[]
+  createdAt DateTime   @default(now())
+}
+
+model Client {
+  id            String     @id @default(cuid())
+  firmName      String
+  contactPerson String?
+  phone         String?
+  address       String?
+  jobSheets     JobSheet[]
+  createdAt     DateTime   @default(now())
+}
+
+model Product {
+  id       String  @id @default(cuid())
+  name     String
+  modelNo  String?
+  brand    String?
+  category String?
+  active   Boolean @default(true)
+}
+
+model JobSheet {
+  id             String    @id @default(cuid())
+  jobNo          String    @unique // KE-YYYYMMDD-NNN — internal, sequential
+  shareToken     String    @unique // nanoid(21) — the ONLY id used in public URLs
+  date           DateTime
+  dateOfWorkDone DateTime?
+
+  engineerId String
+  engineer   Engineer @relation(fields: [engineerId], references: [id])
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
+
+  // Header block — denormalised so the sheet is an immutable record of what was
+  // submitted, even if the Client row is edited later.
+  siteFirmName   String
+  contactPerson  String
+  mobileNo       String
+  address        String
+  handoverReport String? // CHECKED AND HAND OVER REPORT BY ENGG.
+
+  // Footer blocks
+  remarks              String?
+  clientOtherMaterials String? // PRODUCTS/PARTS WORTH AND OTHER MATERIALS...
+
+  // Sign-off
+  signatureData   String? // base64 PNG
+  latitude        Float?
+  longitude       Float?
+  locationAddress String? // reverse-geocoded via Nominatim (README 5.7)
+
+  lineItems   JobLineItem[]
+  faultyItems FaultyItem[]
+  photos      JobPhoto[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model JobLineItem {
+  id          String   @id @default(cuid())
+  jobSheetId  String
+  jobSheet    JobSheet @relation(fields: [jobSheetId], references: [id], onDelete: Cascade)
+  sortOrder   Int
+  description String
+  modelNo     String?
+  qty         Int      @default(0)
+  returnMat   Int      @default(0)
+  consumedMat Int      @default(0)
+}
+
+model FaultyItem {
+  id          String   @id @default(cuid())
+  jobSheetId  String
+  jobSheet    JobSheet @relation(fields: [jobSheetId], references: [id], onDelete: Cascade)
+  sortOrder   Int
+  description String // Hindi + English
+  qty         Int      @default(0)
+  clientName  String?
+}
+
+model JobPhoto {
+  id         String   @id @default(cuid())
+  jobSheetId String
+  jobSheet   JobSheet @relation(fields: [jobSheetId], references: [id], onDelete: Cascade)
+  url        String
+  caption    String?
+  takenAt    DateTime @default(now())
+}

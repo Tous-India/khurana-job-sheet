@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+@theme inline {
+  /* Noto Sans covers Latin; Noto Sans Devanagari covers the Hindi that engineers
+     type into remarks and faulty-material rows. Both are loaded in layout.tsx. */
+  --font-sans: var(--font-noto-sans), var(--font-noto-devanagari), ui-sans-serif,
+    system-ui, sans-serif;
+}
+
+/* Brand blue is taken from the printed letterhead header band. */
+:root {
+  --ke-blue: #1e40af;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+/* Engineers tap these while standing at a site, often one-handed. Keep every
+   interactive target at or above the 44px accessibility minimum. */
+@layer components {
+  .tap-target {
+    min-height: 44px;
+  }
+}
