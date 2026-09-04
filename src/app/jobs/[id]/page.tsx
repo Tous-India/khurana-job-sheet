@@ -1,100 +1,196 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
+import { ShareActions } from '@/components/share-actions'
 
-// Minimal detail view. PDF preview and sharing arrive in Phases 5-6 (README 13).
+export const dynamic = 'force-dynamic'
+
 export default async function JobDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ created?: string }>
 }) {
   const { id } = await params
+  const { created } = await searchParams
+
   const job = await prisma.jobSheet.findUnique({
     where: { id },
     include: {
       engineer: { select: { name: true } },
       lineItems: { orderBy: { sortOrder: 'asc' } },
       faultyItems: { orderBy: { sortOrder: 'asc' } },
+      photos: { orderBy: { takenAt: 'asc' } },
     },
   })
 
   if (!job) notFound()
 
   return (
-    <main className="flex-1 px-5 py-6 max-w-md mx-auto w-full">
-      <Link href="/jobs" className="text-sm text-blue-800">
-        &larr; Job sheets
-      </Link>
-
-      <h1 className="mt-4 font-mono text-sm font-semibold text-blue-800">
-        {job.jobNo}
-      </h1>
-      <p className="mt-1 text-lg font-semibold">{job.siteFirmName}</p>
-      <p className="text-sm text-slate-500">
-        {job.contactPerson} &middot; {job.mobileNo}
-      </p>
-      <p className="mt-1 text-sm text-slate-500">{job.address}</p>
-
-      <dl className="mt-4 grid grid-cols-2 gap-2 text-sm">
-        <div>
-          <dt className="text-xs text-slate-500">Engineer</dt>
-          <dd>{job.engineer.name}</dd>
+    <main className="flex-1 pb-10">
+      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white px-4 py-3">
+        <div className="mx-auto flex max-w-md items-center gap-3">
+          <Link
+            href="/jobs"
+            className="-ml-2 flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 active:bg-slate-100"
+            aria-label="Back to job sheets"
+          >
+            &larr;
+          </Link>
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-mono text-sm font-bold text-blue-800">
+              {job.jobNo}
+            </p>
+            <p className="truncate text-xs text-slate-500">{job.siteFirmName}</p>
+          </div>
         </div>
-        <div>
-          <dt className="text-xs text-slate-500">Date</dt>
-          <dd>{job.date.toLocaleDateString('en-IN')}</dd>
-        </div>
-      </dl>
+      </header>
 
-      {job.lineItems.length > 0 && (
-        <section className="mt-6">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Products / Description
-          </h2>
-          <ul className="mt-2 divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+      <div className="mx-auto w-full max-w-md space-y-5 px-4 pt-4">
+        <ShareActions
+          shareToken={job.shareToken}
+          jobNo={job.jobNo}
+          mobileNo={job.mobileNo}
+          contactPerson={job.contactPerson}
+          dateIso={job.date.toISOString()}
+          justCreated={created === '1'}
+        />
+
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <dl className="grid grid-cols-2 gap-y-3 text-sm">
+            <Row label="Contact" value={job.contactPerson} />
+            <Row label="Mobile" value={job.mobileNo} />
+            <Row label="Engineer" value={job.engineer.name} />
+            <Row
+              label="Date"
+              value={job.date.toLocaleDateString('en-IN', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+              })}
+            />
+          </dl>
+          <div className="mt-3 border-t border-slate-100 pt-3">
+            <dt className="text-[11px] uppercase tracking-wide text-slate-500">
+              Site address
+            </dt>
+            <dd className="mt-0.5 text-sm">{job.address}</dd>
+          </div>
+          {job.locationAddress && (
+            <div className="mt-3 border-t border-slate-100 pt-3">
+              <dt className="text-[11px] uppercase tracking-wide text-slate-500">
+                Location captured
+              </dt>
+              <dd className="mt-0.5 text-sm">{job.locationAddress}</dd>
+            </div>
+          )}
+        </section>
+
+        {job.lineItems.length > 0 && (
+          <Section title="Products / description">
             {job.lineItems.map((li) => (
               <li key={li.id} className="p-3 text-sm">
                 <p className="font-medium">{li.description}</p>
-                <p className="text-xs text-slate-500">
-                  {li.modelNo ?? '—'} &middot; Qty {li.qty} &middot; Return{' '}
-                  {li.returnMat} &middot; Consumed {li.consumedMat}
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {li.modelNo ? (
+                    <span className="font-mono text-blue-700">{li.modelNo}</span>
+                  ) : (
+                    '—'
+                  )}
+                  {' · '}Qty {li.qty} · Return {li.returnMat} · Consumed{' '}
+                  {li.consumedMat}
                 </p>
               </li>
             ))}
-          </ul>
-        </section>
-      )}
+          </Section>
+        )}
 
-      {job.faultyItems.length > 0 && (
-        <section className="mt-6">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Faulty material from client
-          </h2>
-          <ul className="mt-2 divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+        {job.faultyItems.length > 0 && (
+          <Section title="Faulty material from client">
             {job.faultyItems.map((fi) => (
               <li key={fi.id} className="p-3 text-sm">
                 <p>{fi.description}</p>
-                <p className="text-xs text-slate-500">Qty {fi.qty}</p>
+                <p className="mt-0.5 text-xs text-slate-500">Qty {fi.qty}</p>
               </li>
             ))}
-          </ul>
-        </section>
-      )}
+          </Section>
+        )}
 
-      {job.remarks && (
-        <section className="mt-6">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Remarks
-          </h2>
-          <p className="mt-2 rounded-lg border border-slate-200 bg-white p-3 text-sm">
-            {job.remarks}
-          </p>
-        </section>
-      )}
+        {job.photos.length > 0 && (
+          <section>
+            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Site photos ({job.photos.length})
+            </h2>
+            <div className="grid grid-cols-3 gap-2">
+              {job.photos.map((p) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={p.id}
+                  src={p.url}
+                  alt={p.caption ?? 'Site photo'}
+                  className="aspect-square w-full rounded-lg object-cover"
+                />
+              ))}
+            </div>
+          </section>
+        )}
 
-      <p className="mt-8 rounded-lg bg-slate-100 p-3 text-xs text-slate-500">
-        PDF generation and WhatsApp sharing are built in Phases 5–6.
-      </p>
+        {job.remarks && (
+          <section>
+            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Remarks
+            </h2>
+            <p className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+              {job.remarks}
+            </p>
+          </section>
+        )}
+
+        {job.signatureData && (
+          <section>
+            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Customer signature
+            </h2>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={job.signatureData}
+              alt="Customer signature"
+              className="h-20 w-full rounded-xl border border-slate-200 bg-white object-contain p-2"
+            />
+          </section>
+        )}
+      </div>
     </main>
+  )
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-[11px] uppercase tracking-wide text-slate-500">
+        {label}
+      </dt>
+      <dd className="mt-0.5">{value}</dd>
+    </div>
+  )
+}
+
+function Section({
+  title,
+  children,
+}: {
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <section>
+      <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        {title}
+      </h2>
+      <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
+        {children}
+      </ul>
+    </section>
   )
 }

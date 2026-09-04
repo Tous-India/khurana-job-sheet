@@ -411,6 +411,18 @@ would consume disproportionate effort for a demo and still look approximate. Ins
 Until the client supplies artwork, use placeholder images at the correct aspect ratio
 (header approximately 2480×400px, footer strip approximately 2480×200px at 300dpi A4 width).
 
+**Current state:** header and footer are cropped from Khurana's own blank JOBSHEET
+template at `public/letterhead/source-template.png` and saved as
+`public/letterhead/header.png` / `footer.png`. The PDF prefers these and falls back to
+generated placeholders when absent, so it always renders.
+
+**Resolution limit:** a screen-resolution crop of the template is fine on screen and
+acceptable in print at the small sizes used here, but it is not print-ready artwork — logos
+will soften if the sheet is ever enlarged or professionally printed.
+
+**`PRODUCTION TODO` / `CLIENT TO SUPPLY`:** obtain the print-ready source from the client's
+printer (AI, CDR or press-ready PDF) and replace the two PNGs. No code change is needed.
+
 **`CLIENT TO SUPPLY`:** the original letterhead artwork. Their printer will have the source
 file (AI, CDR, or print-ready PDF). Dropping it in replaces the placeholders with no code
 change.

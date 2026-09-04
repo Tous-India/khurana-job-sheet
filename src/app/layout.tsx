@@ -18,6 +18,16 @@ export const metadata: Metadata = {
   title: "Khurana Electronics — Job Sheet",
   description:
     "Digital job sheet for Khurana Electronics field engineers, Sonipat.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "KE Job Sheet",
+  },
+  icons: {
+    icon: "/icon-192.png",
+    apple: "/icon-192.png",
+  },
 };
 
 // Field engineers use this one-handed on a phone, outdoors.

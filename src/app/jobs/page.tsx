@@ -50,7 +50,21 @@ export default async function JobsPage({
             </h1>
             <p className="text-xs text-slate-500">Job Sheets</p>
           </div>
-          <EngineerBadge />
+          <div className="flex items-center gap-2">
+            <Link
+              href="/demo/comparison"
+              className="hidden rounded-lg border border-slate-300 px-2.5 py-2 text-[11px] font-medium text-slate-600 sm:block"
+            >
+              Before / after
+            </Link>
+            <Link
+              href="/admin/engineers"
+              className="rounded-lg border border-slate-300 px-2.5 py-2 text-[11px] font-medium text-slate-600"
+            >
+              Admin
+            </Link>
+            <EngineerBadge />
+          </div>
         </div>
       </header>
 

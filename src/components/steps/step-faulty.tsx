@@ -17,9 +17,17 @@ export function StepFaulty({
   emptyFaultyItem: () => DraftFaultyItem
 }) {
   function updateRow(index: number, patch: Partial<DraftFaultyItem>) {
-    const next = draft.faultyItems.map((fi, i) =>
-      i === index ? { ...fi, ...patch } : fi,
-    )
+    const next = draft.faultyItems.map((fi, i) => {
+      if (i !== index) return fi
+      const merged = { ...fi, ...patch }
+      // Describing an item implies at least one of it. Leaving qty at 0 on a
+      // filled row produces a nonsense line on the sheet, and the engineer will
+      // not go back to fix it.
+      if (patch.description !== undefined && patch.description.trim() && merged.qty === 0) {
+        merged.qty = 1
+      }
+      return merged
+    })
     const last = next[next.length - 1]
     if (last.description.trim() && next.length < 5) next.push(emptyFaultyItem())
     onChange({ faultyItems: next })
