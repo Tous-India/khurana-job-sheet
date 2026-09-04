@@ -155,27 +155,12 @@ export function JobSheetDocument({
   job: PdfJob
   assets: PdfAssets
 }) {
-  const lineRows = [...job.lineItems]
-  while (lineRows.length < 6) {
-    lineRows.push({
-      sortOrder: lineRows.length + 1,
-      description: '',
-      modelNo: null,
-      qty: 0,
-      returnMat: 0,
-      consumedMat: 0,
-    })
-  }
-
-  const faultyRows = [...job.faultyItems]
-  while (faultyRows.length < 3) {
-    faultyRows.push({
-      sortOrder: faultyRows.length + 1,
-      description: '',
-      qty: 0,
-      clientName: null,
-    })
-  }
+  // No padding rows. The paper form has 10 product and 5 faulty rows because
+  // paper cannot grow; the PDF is a record of what happened, not a form to be
+  // filled, and empty rows read as an incomplete document. Header, borders and
+  // column widths are unchanged, so it still reads as the same document.
+  const lineRows = job.lineItems
+  const faultyRows = job.faultyItems
 
   const locationLine =
     job.locationAddress ??
@@ -288,10 +273,10 @@ export function JobSheetDocument({
                   <T style={s.value}>{li.modelNo ?? ''}</T>
                 </View>
                 <View style={[s.cell, { width: LINE_COLS[3], alignItems: 'center' }]}>
-                  <Text style={s.value}>{li.description ? li.qty : ''}</Text>
+                  <Text style={s.value}>{li.qty}</Text>
                 </View>
                 <View style={[s.cell, { width: LINE_COLS[4], alignItems: 'center' }]}>
-                  <Text style={s.value}>{li.description ? li.returnMat : ''}</Text>
+                  <Text style={s.value}>{li.returnMat}</Text>
                 </View>
                 <View
                   style={[
@@ -299,14 +284,15 @@ export function JobSheetDocument({
                     { width: LINE_COLS[5], alignItems: 'center', borderRightWidth: 0 },
                   ]}
                 >
-                  <Text style={s.value}>{li.description ? li.consumedMat : ''}</Text>
+                  <Text style={s.value}>{li.consumedMat}</Text>
                 </View>
               </View>
             ))}
           </View>
         </View>
 
-        {/* Faulty material */}
+        {/* Faulty material — omitted entirely when the engineer took nothing back. */}
+        {faultyRows.length > 0 && (
         <View style={{ marginTop: 6 }}>
           <View style={[s.box, { borderBottomWidth: 0 }]}>
             <View style={[s.row, s.thead]}>
@@ -342,17 +328,18 @@ export function JobSheetDocument({
                   <T style={s.value}>{fi.description}</T>
                 </View>
                 <View style={[s.cell, { width: FAULTY_COLS[2], alignItems: 'center' }]}>
-                  <Text style={s.value}>{fi.description ? fi.qty : ''}</Text>
+                  <Text style={s.value}>{fi.qty}</Text>
                 </View>
                 <View
                   style={[s.cell, { width: FAULTY_COLS[3], borderRightWidth: 0 }]}
                 >
-                  <T style={s.value}>{fi.description ? (fi.clientName ?? '') : ''}</T>
+                  <T style={s.value}>{fi.clientName ?? ''}</T>
                 </View>
               </View>
             ))}
           </View>
         </View>
+        )}
 
         {/* Remarks + client's other materials */}
         <View style={[s.row, { marginTop: 6 }]}>
@@ -372,13 +359,32 @@ export function JobSheetDocument({
 
         {/* Confirmation + signature */}
         <View style={[s.row, { marginTop: 6 }]}>
-          <View style={[s.box, { width: 250, padding: 4 }]}>
-            <Text style={s.confirmText}>
+          <View style={[s.box, { width: 250, padding: 4, flexDirection: 'row' }]}>
+            <Text style={[s.confirmText, { flex: 1 }]}>
               IT IS HEREBY CONFIRMED THAT THE ABOVE MENTIONED{'\n'}
               INSTALLTION HAS BEEN COMPLETED TO OUR SATISFACTION{'\n'}
               ADDRESS :- 1456-HBC-SEC-14-BEHIND GANDHI PARK SONIPAT-131001{'\n'}
               0130-4018060 - 9053000270
             </Text>
+            {/* Review QR sits here, diagonally opposite the letterhead's two
+                footer QRs, so the three never cluster. */}
+            {assets.qrDataUrl ? (
+              <View
+                style={{
+                  alignItems: 'center',
+                  width: 44,
+                  marginLeft: 8,
+                  justifyContent: 'center',
+                }}
+              >
+                <Image src={assets.qrDataUrl} style={{ width: 36, height: 36 }} />
+                <Text
+                  style={{ fontSize: 5, color: '#64748b', marginTop: 2 }}
+                >
+                  Review us
+                </Text>
+              </View>
+            ) : null}
           </View>
           <View style={[s.box, { flex: 1, padding: 4, borderLeftWidth: 0 }]}>
             <Text style={s.label}>SIGNATURE WITH STAMP OF CLIENT</Text>
@@ -404,18 +410,11 @@ export function JobSheetDocument({
           </View>
         </View>
 
-        {/* Review QR + brand strip */}
+        {/* Brand strip caption. The review QR is NOT placed here: the letterhead
+            footer already carries two QR codes (a BILLS dealer page and a UPI
+            payment code), and a third alongside them reads as a mistake. It
+            lives in the signature block instead — see below. */}
         <View style={[s.row, { marginTop: 6, alignItems: 'flex-end' }]}>
-          {assets.qrDataUrl ? (
-            <View style={{ alignItems: 'center', width: 54 }}>
-              <Image src={assets.qrDataUrl} style={{ width: 40, height: 40 }} />
-              <Text style={{ fontSize: 4.5, color: '#64748b', marginTop: 1 }}>
-                Review us
-              </Text>
-            </View>
-          ) : (
-            <View style={{ width: 54 }} />
-          )}
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Text style={{ fontSize: 5.5, color: '#64748b' }}>
               PRODUCT IS PRAISE WORTHY AND WILL NOT HESITATE RECOMMEND TO OTHERS
@@ -424,7 +423,6 @@ export function JobSheetDocument({
               DEALS IN : HIKVISION | TVT | DAHUA | CP PLUS | AHUJA | JBL | BOSCH
             </Text>
           </View>
-          <View style={{ width: 54 }} />
         </View>
 
         <Image src={assets.footerImage} style={s.footerImage} />

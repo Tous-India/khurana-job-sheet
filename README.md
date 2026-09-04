@@ -103,7 +103,7 @@ DATABASE_URL="postgresql://user:password@host/dbname?sslmode=require"
 # Public base URL, used to build shareable PDF links for WhatsApp.
 NEXT_PUBLIC_BASE_URL="http://localhost:3000"
 
-# Google review link, rendered as a QR code in the PDF footer.
+# Google review link, rendered as a QR code in the PDF confirmation block.
 # CLIENT TO SUPPLY — see section 12.
 NEXT_PUBLIC_GOOGLE_REVIEW_URL=""
 ```
@@ -438,6 +438,22 @@ is good for screen and phone viewing, and acceptable in print at the small sizes
 but it is **slightly soft in print** — logos will visibly soften if the sheet is enlarged or
 professionally printed.
 
+**The letterhead footer already carries two QR codes.** Decoded from
+`public/letterhead/footer.png`:
+
+| Position | Decodes to | What it is |
+|---|---|---|
+| Left | `https://billsindia.com/khuranaelectronics.php` | BILLS dealer page |
+| Right | `upi://pay?pa=9053000271@pz&pn=Khurana%20Electronics` | UPI payment code |
+
+**Neither is a Google review link**, so the separately generated review QR is kept — but it
+must not sit beside them. Three QR codes clustered along the bottom edge read as a mistake.
+It is therefore placed **inside the confirmation block**, diagonally opposite the footer
+pair. Do not move it back next to the brand strip.
+
+Note the UPI code is a live payment target: it should be treated as real customer-facing
+payment infrastructure, not decoration, and must not be cropped out or replaced casually.
+
 **`PRODUCTION TODO` / `CLIENT TO SUPPLY`:** obtain the print-ready source from the client's
 printer (AI, CDR or press-ready PDF) and replace the two PNGs at the same paths. No code
 change is needed — only recompute the two heights if the aspect ratios differ.
@@ -462,7 +478,8 @@ change.
 9. Footer brand-strip image
 10. **Google review QR code** in the footer — printed on the paper form and both filled
     sheets. Generate from `NEXT_PUBLIC_GOOGLE_REVIEW_URL` using the `qrcode` package.
-    **`CLIENT TO SUPPLY`:** the Google review URL.
+    **`CLIENT TO SUPPLY`:** the Google review URL. Rendered in the confirmation block,
+    not the footer — see 6.2 for why. With the variable unset the QR is simply omitted.
 
 ### 6.4 Page 2 — site photos
 
@@ -704,7 +721,7 @@ placeholders for all of them.
 | Item | Used for |
 |---|---|
 | Letterhead artwork (AI / CDR / print-ready PDF) | PDF header and footer brand strip (6.2) |
-| Google review URL | QR code in the PDF footer (6.3) |
+| Google review URL | Review QR in the confirmation block (6.2, 6.3) |
 | **Photo of a completed handwritten job sheet**, placed at `/public/demo/original-sheet.jpg` | Comparison screen (section 10) |
 | Contact email for the Nominatim `User-Agent` header | Reverse geocoding (5.7) |
 | Real engineer names and mobile numbers | Seed data (section 11) |
