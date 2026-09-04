@@ -56,11 +56,13 @@ const s = StyleSheet.create({
     fontFamily: FONT_FAMILY,
     fontSize: 8,
     paddingTop: 8,
-    paddingBottom: 46,
+    paddingBottom: 88,
     paddingHorizontal: 20,
     color: '#0f172a',
   },
-  headerImage: { width: '100%', height: 46, objectFit: 'fill' },
+  // Real letterhead is 1131x215 (ratio 5.26). At the 555.3pt A4 content width
+  // that is 105.6pt tall — 'contain', never 'fill', so the logos never distort.
+  headerImage: { width: '100%', height: 105.6, objectFit: 'contain' },
   titleRow: { alignItems: 'center', marginTop: 4, marginBottom: 6 },
   jobsheetPill: {
     backgroundColor: BLUE,
@@ -101,17 +103,19 @@ const s = StyleSheet.create({
   sectionBarText: { fontSize: 6.5, fontWeight: 'bold', color: '#1e3a8a' },
 
   confirmText: { fontSize: 6.5, lineHeight: 1.35 },
+  // Real brand strip is 1131x132 (ratio 8.57) = 64.8pt at content width. It
+  // carries both QR codes, so it must not be squashed.
   footerImage: {
     position: 'absolute',
-    bottom: 14,
+    bottom: 10,
     left: 20,
     right: 20,
-    height: 16,
-    objectFit: 'fill',
+    height: 64.8,
+    objectFit: 'contain',
   },
   pageNote: {
     position: 'absolute',
-    bottom: 4,
+    bottom: 80,
     left: 20,
     right: 20,
     textAlign: 'center',
@@ -187,11 +191,6 @@ export function JobSheetDocument({
     >
       <Page size="A4" style={s.page}>
         <Image src={assets.headerImage} style={s.headerImage} fixed={false} />
-
-        <View style={s.titleRow}>
-          <Text style={s.jobsheetPill}>JOBSHEET</Text>
-          <Text style={s.wordmark}>KHURANA ELECTRONICS</Text>
-        </View>
 
         {/* Header block */}
         <View style={s.box}>

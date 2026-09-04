@@ -411,17 +411,36 @@ would consume disproportionate effort for a demo and still look approximate. Ins
 Until the client supplies artwork, use placeholder images at the correct aspect ratio
 (header approximately 2480×400px, footer strip approximately 2480×200px at 300dpi A4 width).
 
-**Current state:** header and footer are cropped from Khurana's own blank JOBSHEET
-template at `public/letterhead/source-template.png` and saved as
-`public/letterhead/header.png` / `footer.png`. The PDF prefers these and falls back to
-generated placeholders when absent, so it always renders.
+**Current state — real artwork, extracted from the client's own template.** The header and
+footer are cropped from `public/letterhead/source-template.png` (a clean digital render of
+Khurana's blank printed JOBSHEET) and saved as:
 
-**Resolution limit:** a screen-resolution crop of the template is fine on screen and
-acceptable in print at the small sizes used here, but it is not print-ready artwork — logos
-will soften if the sheet is ever enlarged or professionally printed.
+| Asset | Native size | Aspect ratio | Rendered at A4 |
+|---|---|---|---|
+| `public/letterhead/header.png` | 1131 x 215 | 5.26 | 555.3 x 105.6 pt |
+| `public/letterhead/footer.png` | 1131 x 132 | 8.57 | 555.3 x 64.8 pt |
+
+The header carries the KE logo (left), the JOBSHEET pill and KHURANA ELECTRONICS wordmark
+(centre) and the BILLS logo (right). The footer carries the brand strip — BILLS, HIKVISION,
+AHUJA, TVT, CP PLUS, JBL, BOSCH — flanked by both QR codes.
+
+Two rules keep them from distorting:
+
+- **Use `objectFit: 'contain'`, never `'fill'`.** `fill` stretches artwork to whatever box it
+  is given, which silently squashed the header to 44% of its true height before this was
+  caught. Heights above are derived from the native ratios and must be recomputed if the
+  crops are ever replaced.
+- **Do not re-render the JOBSHEET title or the wordmark in the document.** They are already
+  part of the header image; drawing them again duplicates them.
+
+**Resolution:** these are extracted at **~137 DPI at A4 width** (1131px across 8.27in). That
+is good for screen and phone viewing, and acceptable in print at the small sizes used here,
+but it is **slightly soft in print** — logos will visibly soften if the sheet is enlarged or
+professionally printed.
 
 **`PRODUCTION TODO` / `CLIENT TO SUPPLY`:** obtain the print-ready source from the client's
-printer (AI, CDR or press-ready PDF) and replace the two PNGs. No code change is needed.
+printer (AI, CDR or press-ready PDF) and replace the two PNGs at the same paths. No code
+change is needed — only recompute the two heights if the aspect ratios differ.
 
 **`CLIENT TO SUPPLY`:** the original letterhead artwork. Their printer will have the source
 file (AI, CDR, or print-ready PDF). Dropping it in replaces the placeholders with no code
