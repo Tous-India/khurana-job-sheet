@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
+import { withDbErrors } from '@/lib/db-error'
 import { EngineerBadge } from '@/components/engineer-badge'
 import { JobSearch } from '@/components/job-search'
 
@@ -22,25 +23,27 @@ export default async function JobsPage({
   const showToday = tab !== 'all'
   const query = (q ?? '').trim()
 
-  const jobs = await prisma.jobSheet.findMany({
-    where: {
-      ...(showToday ? { date: { gte: startOfToday() } } : {}),
-      // Search by job number or client/site name — the two things the office
-      // has to hand when a customer rings up about a visit.
-      ...(query
-        ? {
-            OR: [
-              { jobNo: { contains: query, mode: 'insensitive' as const } },
-              { siteFirmName: { contains: query, mode: 'insensitive' as const } },
-              { contactPerson: { contains: query, mode: 'insensitive' as const } },
-            ],
-          }
-        : {}),
-    },
-    orderBy: { date: 'desc' },
-    include: { engineer: { select: { name: true } } },
-    take: 50,
-  })
+  const jobs = await withDbErrors(() =>
+    prisma.jobSheet.findMany({
+      where: {
+        ...(showToday ? { date: { gte: startOfToday() } } : {}),
+        // Search by job number or client/site name — the two things the office
+        // has to hand when a customer rings up about a visit.
+        ...(query
+          ? {
+              OR: [
+                { jobNo: { contains: query, mode: 'insensitive' as const } },
+                { siteFirmName: { contains: query, mode: 'insensitive' as const } },
+                { contactPerson: { contains: query, mode: 'insensitive' as const } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: { date: 'desc' },
+      include: { engineer: { select: { name: true } } },
+      take: 50,
+    }),
+  )
 
   return (
     <main className="flex-1 pb-24">

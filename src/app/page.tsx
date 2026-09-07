@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { withDbErrors } from '@/lib/db-error'
 import { EngineerPicker } from '@/components/engineer-picker'
 
 // Engineer selection is the app entry point (README 5.8): one tap, no login.
@@ -6,11 +7,13 @@ import { EngineerPicker } from '@/components/engineer-picker'
 export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
-  const engineers = await prisma.engineer.findMany({
-    where: { active: true },
-    orderBy: { name: 'asc' },
-    select: { id: true, name: true },
-  })
+  const engineers = await withDbErrors(() =>
+    prisma.engineer.findMany({
+      where: { active: true },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
+    }),
+  )
 
   return (
     <main className="flex-1 px-5 py-10 max-w-md mx-auto w-full">

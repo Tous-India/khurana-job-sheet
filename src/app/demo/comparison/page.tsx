@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
+import { withDbErrors } from '@/lib/db-error'
 import { ComparisonView } from '@/components/comparison-view'
 
 export const dynamic = 'force-dynamic'
@@ -13,16 +14,18 @@ export const dynamic = 'force-dynamic'
  */
 export default async function ComparisonPage() {
   // Prefer a sheet with Hindi content — it shows the hardest case working.
-  const job =
-    (await prisma.jobSheet.findFirst({
-      where: { remarks: { contains: 'कैमरे' } },
-      orderBy: { date: 'desc' },
-      select: { jobNo: true, shareToken: true, siteFirmName: true },
-    })) ??
-    (await prisma.jobSheet.findFirst({
-      orderBy: { date: 'desc' },
-      select: { jobNo: true, shareToken: true, siteFirmName: true },
-    }))
+  const job = await withDbErrors(
+    async () =>
+      (await prisma.jobSheet.findFirst({
+        where: { remarks: { contains: 'कैमरे' } },
+        orderBy: { date: 'desc' },
+        select: { jobNo: true, shareToken: true, siteFirmName: true },
+      })) ??
+      (await prisma.jobSheet.findFirst({
+        orderBy: { date: 'desc' },
+        select: { jobNo: true, shareToken: true, siteFirmName: true },
+      })),
+  )
 
   const realSheet = path.join(process.cwd(), 'public', 'demo', 'original-sheet.jpg')
   const originalSrc = existsSync(realSheet)

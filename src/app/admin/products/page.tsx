@@ -1,13 +1,16 @@
 import { prisma } from '@/lib/prisma'
+import { withDbErrors } from '@/lib/db-error'
 import { AdminShell, EmptyState } from '@/components/admin-shell'
 import { saveProduct, toggleProduct } from '@/app/admin/actions'
 
 export const dynamic = 'force-dynamic'
 
 export default async function ProductsAdminPage() {
-  const products = await prisma.product.findMany({
-    orderBy: [{ active: 'desc' }, { brand: 'asc' }, { name: 'asc' }],
-  })
+  const products = await withDbErrors(() =>
+    prisma.product.findMany({
+      orderBy: [{ active: 'desc' }, { brand: 'asc' }, { name: 'asc' }],
+    }),
+  )
 
   return (
     <AdminShell active="/admin/products">
