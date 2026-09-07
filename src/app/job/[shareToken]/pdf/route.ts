@@ -4,6 +4,9 @@ import { registerPdfFonts } from '@/pdf/fonts'
 import { loadPdfAssets, resolvePhotoSrc } from '@/pdf/render'
 import { JobSheetDocument } from '@/pdf/job-sheet-document'
 
+// Per-token and always dynamic — never statically analysed or prerendered.
+export const dynamic = 'force-dynamic'
+
 /**
  * Public PDF, addressed by an unguessable shareToken rather than the sequential
  * job number (README 7.1) — job numbers are trivially enumerable, which would

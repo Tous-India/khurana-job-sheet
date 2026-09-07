@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { EngineerBadge } from '@/components/engineer-badge'
 import { JobSearch } from '@/components/job-search'
 
+export const dynamic = 'force-dynamic'
+
 type SearchParams = { tab?: string; q?: string }
 
 function startOfToday(): Date {
