@@ -92,6 +92,16 @@ ephemeral. A SQLite file is wiped on every deploy and on every cold start, so al
 sheets would silently disappear. Use hosted Postgres from the start — the Prisma schema and
 all client code are identical either way, so there is no cost to doing this correctly now.
 
+**If using Neon, `DATABASE_URL` must be the pooled connection string** (hostname contains
+`-pooler`), not the direct one. The Prisma client connects through `@prisma/adapter-pg`
+(`node-postgres`), which opens its own connection pool per running instance; on Vercel each
+serverless function invocation can be a fresh instance, so the *direct* Neon endpoint's
+low connection cap is exhausted almost immediately under any concurrency. The pooled
+endpoint (PgBouncer, transaction mode) is built for exactly this. Neon's dashboard shows
+both under Connection Details — copy the one labelled "Pooled connection". `prisma
+generate` and `prisma migrate` also read this same `DATABASE_URL` and work fine against the
+pooled endpoint for this app's usage.
+
 Create `.env.example`:
 
 ```env
