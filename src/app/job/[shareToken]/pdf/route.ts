@@ -1,5 +1,5 @@
 import { renderToBuffer } from '@react-pdf/renderer'
-import { prisma } from '@/lib/prisma'
+import { findJobSheetByShareToken } from '@/lib/db'
 import { registerPdfFonts } from '@/pdf/fonts'
 import { loadPdfAssets, resolvePhotoSrc } from '@/pdf/render'
 import { JobSheetDocument } from '@/pdf/job-sheet-document'
@@ -18,15 +18,7 @@ export async function GET(
 ) {
   const { shareToken } = await params
 
-  const job = await prisma.jobSheet.findUnique({
-    where: { shareToken },
-    include: {
-      engineer: { select: { name: true } },
-      lineItems: { orderBy: { sortOrder: 'asc' } },
-      faultyItems: { orderBy: { sortOrder: 'asc' } },
-      photos: { orderBy: { takenAt: 'asc' } },
-    },
-  })
+  const job = await findJobSheetByShareToken(shareToken)
 
   if (!job) {
     return new Response('Job sheet not found', { status: 404 })

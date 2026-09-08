@@ -4,14 +4,14 @@
  * Next.js strips error messages in production before they reach a client
  * `error.tsx` — the boundary receives only a `digest`, which is why an
  * unconfigured deployment shows a bare error page with no clue as to the cause.
- * So the classification has to happen here, on the server, while the Prisma
- * error code is still intact; the boundary is then handed a symbolic `kind`
- * that is safe to render.
+ * So the classification has to happen here, on the server, while the driver's
+ * error is still intact; the boundary is then handed a symbolic `kind` that is
+ * safe to render.
  *
- * Codes are Prisma's own (see the driver-adapter error mapping in the client
- * runtime). Nothing derived from the connection string — host, port, database
- * name, user — is ever propagated: Prisma puts those in the error *message*,
- * which is precisely what must not reach the browser.
+ * Nothing derived from the connection string — host, port, database name, user
+ * — is ever propagated. This matters concretely: MongoServerSelectionError puts
+ * the resolved hostname in its message ("getaddrinfo ENOTFOUND <host>"), which
+ * is precisely what must not reach the browser.
  */
 
 export type DbErrorKind =
@@ -19,11 +19,11 @@ export type DbErrorKind =
   | 'unconfigured'
   /** Configured, but the server refused or could not be reached. */
   | 'unreachable'
-  /** Reached the server, but the credentials or database name are wrong. */
+  /** Reached the server, but the credentials were rejected. */
   | 'rejected'
-  /** Connected fine, but the schema is empty — migrations never ran. */
+  /** Connected fine, but the collections are empty — the seed never ran. */
   | 'not-migrated'
-  /** Connected, but out of connections — the classic direct-vs-pooled mistake. */
+  /** Connected, but out of connections. */
   | 'exhausted'
   /** A database error we have no specific guidance for. */
   | 'unknown'
@@ -69,31 +69,40 @@ const KINDS: readonly DbErrorKind[] = [
   'unknown',
 ]
 
-function prismaCode(error: unknown): string | undefined {
+function errorName(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const name = (error as { name?: unknown }).name
+  return typeof name === 'string' ? name : undefined
+}
+
+function errorCode(error: unknown): number | undefined {
   if (typeof error !== 'object' || error === null) return undefined
   const code = (error as { code?: unknown }).code
-  return typeof code === 'string' ? code : undefined
+  return typeof code === 'number' ? code : undefined
 }
 
 export function classifyDbError(error: unknown): DbErrorKind {
   if (error instanceof DatabaseUnavailableError) return error.kind
 
-  switch (prismaCode(error)) {
-    case 'P1000': // AuthenticationFailed
-    case 'P1010': // DatabaseAccessDenied
+  // Authentication is a server error with a specific code, so it must be
+  // checked before the name-based cases below.
+  switch (errorCode(error)) {
+    case 18: // AuthenticationFailed
+    case 8000: // Atlas: "bad auth"
       return 'rejected'
-    case 'P1001': // DatabaseNotReachable
-    case 'P1008': // SocketTimeout
-    case 'P1011': // TlsConnectionError
-    case 'P1017': // ConnectionClosed
+    case 13: // Unauthorized — user lacks rights on this database
+      return 'rejected'
+  }
+
+  switch (errorName(error)) {
+    // Raised when the driver cannot reach any server in the topology: DNS
+    // failure, connection refused, timeout, or an IP the Atlas allowlist
+    // rejects. All have the same fix — make the server reachable.
+    case 'MongoServerSelectionError':
+    case 'MongoNetworkError':
+    case 'MongoNetworkTimeoutError':
+    case 'MongoTopologyClosedError':
       return 'unreachable'
-    case 'P1003': // DatabaseDoesNotExist
-      return 'rejected'
-    case 'P2021': // TableDoesNotExist
-    case 'P2022': // ColumnNotFound — schema drift, same fix as a missing table
-      return 'not-migrated'
-    case 'P2037': // TooManyConnections
-      return 'exhausted'
     default:
       return 'unknown'
   }
@@ -117,8 +126,8 @@ export async function withDbErrors<T>(query: () => Promise<T>): Promise<T> {
   try {
     return await query()
   } catch (error) {
-    // A missing DATABASE_URL surfaces as a plain Error from src/lib/prisma.ts,
-    // before Prisma is ever constructed, so it carries no Prisma code.
+    // A missing DATABASE_URL surfaces as a plain Error from src/lib/mongo.ts,
+    // thrown before the driver is constructed, so it carries no driver code.
     if (
       error instanceof Error &&
       error.message.includes('DATABASE_URL is required')

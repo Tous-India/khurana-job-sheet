@@ -62,7 +62,7 @@ Items deferred to production are marked **`PRODUCTION TODO`** throughout.
 |---|---|
 | Framework | Next.js 16, App Router, TypeScript, Turbopack |
 | Styling | Tailwind CSS v4 + shadcn/ui |
-| Database | **PostgreSQL** (Neon or Supabase free tier) via Prisma |
+| Database | **MongoDB Atlas** via the official `mongodb` driver |
 | PDF | `@react-pdf/renderer` |
 | Signature | `react-signature-canvas` |
 | File uploads | **Vercel Blob** (local disk in dev only — see 5.10) |
@@ -70,45 +70,59 @@ Items deferred to production are marked **`PRODUCTION TODO`** throughout.
 | PDF fonts | **Mukta** (SIL OFL), committed to `/public/fonts/` — see 6.1 for why not Noto |
 | Deployment | Vercel |
 
-### Prisma 7 setup notes
+### Data layer — the MongoDB driver, not an ORM
 
-Prisma 7 changed three things that break older tutorials and prior assumptions:
+The app talks to MongoDB through the official `mongodb` driver. There is no ORM, for a
+concrete reason: **Prisma 7 cannot connect to MongoDB at all.** It requires a driver adapter
+for every datasource and ships none for MongoDB (`@prisma/adapter-mongodb` does not exist),
+having removed the built-in query engine that MongoDB previously relied on. A Prisma 7
+MongoDB schema will validate and generate a client, then fail at connect time with
+*"A driver adapter is required to connect to your database"*. Only Prisma 6 and earlier
+support MongoDB.
 
-- **No `url` in `schema.prisma`.** The datasource block declares only the provider. The
-  connection string lives in `prisma.config.ts` for migrations, and reaches the client
-  through a driver adapter (`@prisma/adapter-pg`) in `src/lib/prisma.ts`.
-- **The generator must declare an `output` path.** Use `provider = "prisma-client"` with
-  `output = "../src/generated/prisma"`. Without it no client is emitted at all. The
-  generated directory is gitignored; run `npx prisma generate` after cloning.
-- **Pin `prisma` and `@prisma/client` to the same exact version.** npm otherwise resolves
-  the CLI to an 8.x release candidate against a stable 7.x client, which fails to generate.
+Two files make up the data layer:
 
-Seeding runs through `tsx`: `npx tsx --env-file=.env prisma/seed.ts`.
+- **`src/lib/mongo.ts`** — connection, document types, indexes. Connecting is deferred to
+  the first query, so `next build` never needs a reachable database.
+- **`src/lib/db.ts`** — every query the app makes, returning plain objects with string ids.
+  `ObjectId` values never cross into a React component, since Next cannot serialise them.
 
-### Database — Postgres, not SQLite
+Two things the document model does not provide, handled in application code:
 
-**Do not use SQLite.** The app deploys to Vercel, where the filesystem is read-only and
-ephemeral. A SQLite file is wiped on every deploy and on every cold start, so all job
-sheets would silently disappear. Use hosted Postgres from the start — the Prisma schema and
-all client code are identical either way, so there is no cost to doing this correctly now.
+- **No joins.** Reads that would have used a SQL join fetch the related documents and stitch
+  them together — with one query per collection, not one per row, so a list of N sheets
+  costs a constant number of round trips.
+- **No cascading deletes.** MongoDB has no foreign keys, so deleting a job sheet must delete
+  its line items, faulty items and photos explicitly (`deleteJobSheetCascade`). Miss this
+  and the children survive as orphans that nothing references and no screen can reach.
 
-**If using Neon, `DATABASE_URL` must be the pooled connection string** (hostname contains
-`-pooler`), not the direct one. The Prisma client connects through `@prisma/adapter-pg`
-(`node-postgres`), which opens its own connection pool per running instance; on Vercel each
-serverless function invocation can be a fresh instance, so the *direct* Neon endpoint's
-low connection cap is exhausted almost immediately under any concurrency. The pooled
-endpoint (PgBouncer, transaction mode) is built for exactly this. Neon's dashboard shows
-both under Connection Details — copy the one labelled "Pooled connection". `prisma
-generate` and `prisma migrate` also read this same `DATABASE_URL` and work fine against the
-pooled endpoint for this app's usage.
+**There are no migrations.** MongoDB creates collections on first write; the indexes the app
+depends on are created by `ensureIndexes()`, which the seed runs. The unique index on
+`jobNo` is load-bearing — it is what makes two simultaneous submissions safe (see 5.1).
+
+Seeding: `npm run seed` (or `npx tsx --env-file=.env scripts/seed.ts`). It is idempotent —
+it clears every collection first, so it can be re-run safely.
+
+### Atlas setup
+
+`DATABASE_URL` must include an explicit **database name**, which Atlas's "Connect" dialog
+omits — it gives you `...mongodb.net/?retryWrites=true`, and Prisma-free driver code will
+otherwise use the default `test` database. Insert the name before the query string:
+
+```
+mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/khurana?retryWrites=true&w=majority
+```
+
+Under **Network Access**, add `0.0.0.0/0` to the IP allowlist. Vercel's serverless functions
+have no fixed egress IPs, so a restricted allowlist blocks the deployment entirely while
+working fine from a developer machine.
 
 Create `.env.example`:
 
 ```env
-# PostgreSQL connection string — use Neon (neon.tech) or Supabase (supabase.com), both free tier.
-# DO NOT use SQLite: Vercel's filesystem is read-only and ephemeral, so a SQLite
-# database file is destroyed on every deploy and every cold start, losing all job sheets.
-DATABASE_URL="postgresql://user:password@host/dbname?sslmode=require"
+# MongoDB Atlas connection string. The database name (/khurana) is required —
+# Atlas omits it from the string it shows you.
+DATABASE_URL="mongodb+srv://user:password@cluster0.xxxxx.mongodb.net/khurana?retryWrites=true&w=majority"
 
 # Public base URL, used to build shareable PDF links for WhatsApp.
 NEXT_PUBLIC_BASE_URL="http://localhost:3000"
@@ -218,10 +232,11 @@ The three most-skipped fields are eliminated rather than validated:
 
   **Handle the race condition.** The daily sequence is derived by counting that day's
   existing rows, so two engineers submitting at the same moment would compute the same
-  number. `jobNo` is `@unique` in the schema (section 8) — keep it that way, and wrap
-  generation in a retry loop that catches the unique-constraint violation (Prisma error
-  `P2002`), recomputes the sequence and retries, **up to 5 attempts** before surfacing an
-  error. Never let a duplicate job number reach the database.
+  number. `jobNo` carries a **unique index** (section 8) — keep it that way, and wrap
+  generation in a retry loop that catches the duplicate-key error (MongoDB error `11000`),
+  recomputes the sequence and retries, **up to 5 attempts** before surfacing an error. Never
+  let a duplicate job number reach the database. The index is created by `ensureIndexes()`;
+  without it there is no collision to catch and duplicates pass silently.
 - **Date** — defaults to today.
 - **Engineer name** — taken from the engineer selected on app open (see 5.8).
 
@@ -336,7 +351,7 @@ mode with a structured photo record attached to the job. It is a key selling poi
 feature it in the demo.
 
 **Use Vercel Blob for the demo, not just for production.** Vercel's filesystem is read-only
-at runtime — the same constraint that rules out SQLite in section 3 — so writing to
+at runtime — the same constraint that rules out any file-backed database — so writing to
 `/public/uploads` fails in the deployed demo and photo upload breaks in front of the client.
 Vercel Blob is free tier and is roughly ten lines behind the `uploadFile()` abstraction.
 
@@ -549,107 +564,53 @@ office.
 
 ---
 
-## 8. Data model (Prisma)
+## 8. Data model (MongoDB collections)
 
-```prisma
-model Engineer {
-  id        String     @id @default(cuid())
-  name      String
-  phone     String?
-  active    Boolean    @default(true)
-  jobSheets JobSheet[]
-  createdAt DateTime   @default(now())
+Seven collections, mirroring the relational model the paper form implies. Types are as
+declared in `src/lib/mongo.ts`; `_id` is a real `ObjectId`, and every value crossing into
+React is converted to a string id by the mappers in `src/lib/db.ts`.
+
+```ts
+engineers    { _id, name, phone?, active, createdAt }
+clients      { _id, firmName, contactPerson?, phone?, address?, createdAt }
+products     { _id, name, modelNo?, brand?, category?, active }
+
+jobSheets {
+  _id
+  jobNo             // KE-YYYYMMDD-NNN — internal, sequential. UNIQUE INDEX.
+  shareToken        // nanoid(21) — the ONLY id used in public URLs. UNIQUE INDEX.
+  date, dateOfWorkDone?
+  engineerId        // -> engineers._id
+  clientId?         // -> clients._id, nulled when a client is deleted
+
+  // Header block, denormalised so the sheet is an immutable record of what was
+  // submitted even if the client document is edited later.
+  siteFirmName, contactPerson, mobileNo, address, handoverReport?
+
+  remarks?, clientOtherMaterials?
+  signatureData?    // base64 PNG
+  latitude?, longitude?, locationAddress?
+  createdAt, updatedAt
 }
 
-model Client {
-  id        String     @id @default(cuid())
-  firmName  String
-  contactPerson String?
-  phone     String?
-  address   String?
-  jobSheets JobSheet[]
-  createdAt DateTime   @default(now())
-}
-
-model Product {
-  id       String  @id @default(cuid())
-  name     String
-  modelNo  String?
-  brand    String?
-  category String?
-  active   Boolean @default(true)
-}
-
-model JobSheet {
-  id              String   @id @default(cuid())
-  jobNo           String   @unique          // KE-YYYYMMDD-NNN — internal, sequential
-  shareToken      String   @unique          // nanoid(21) — the ONLY id used in public URLs
-  date            DateTime
-  dateOfWorkDone  DateTime?
-
-  engineerId      String
-  engineer        Engineer @relation(fields: [engineerId], references: [id])
-
-  clientId        String?
-  client          Client?  @relation(fields: [clientId], references: [id])
-
-  // Header block — denormalised so the sheet is an immutable record of what was
-  // submitted, even if the Client row is edited later.
-  siteFirmName    String
-  contactPerson   String
-  mobileNo        String
-  address         String
-  handoverReport  String?                   // CHECKED AND HAND OVER REPORT BY ENGG.
-
-  // Footer blocks
-  remarks         String?
-  clientOtherMaterials String?              // PRODUCTS/PARTS WORTH AND OTHER MATERIALS...
-
-  // Sign-off
-  signatureData   String?                   // base64 PNG
-  latitude        Float?
-  longitude       Float?
-  locationAddress String?                   // reverse-geocoded
-
-  lineItems       JobLineItem[]
-  faultyItems     FaultyItem[]
-  photos          JobPhoto[]
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-}
-
-model JobLineItem {
-  id          String   @id @default(cuid())
-  jobSheetId  String
-  jobSheet    JobSheet @relation(fields: [jobSheetId], references: [id], onDelete: Cascade)
-  sortOrder   Int
-  description String
-  modelNo     String?
-  qty         Int      @default(0)
-  returnMat   Int      @default(0)
-  consumedMat Int      @default(0)
-}
-
-model FaultyItem {
-  id          String   @id @default(cuid())
-  jobSheetId  String
-  jobSheet    JobSheet @relation(fields: [jobSheetId], references: [id], onDelete: Cascade)
-  sortOrder   Int
-  description String                        // Hindi + English
-  qty         Int      @default(0)
-  clientName  String?
-}
-
-model JobPhoto {
-  id         String   @id @default(cuid())
-  jobSheetId String
-  jobSheet   JobSheet @relation(fields: [jobSheetId], references: [id], onDelete: Cascade)
-  url        String
-  caption    String?
-  takenAt    DateTime @default(now())
-}
+jobLineItems { _id, jobSheetId, sortOrder, description, modelNo?, qty, returnMat, consumedMat }
+faultyItems  { _id, jobSheetId, sortOrder, description, qty, clientName? }
+jobPhotos    { _id, jobSheetId, url, caption?, takenAt }
 ```
+
+**Referential integrity is the application's job, not the database's.** MongoDB enforces
+neither foreign keys nor cascading deletes, so two rules have to be kept by hand:
+
+- Deleting a job sheet must delete its line items, faulty items and photos
+  (`deleteJobSheetCascade`). There is no database-level safety net.
+- Deleting a client nulls `clientId` on its sheets rather than removing them
+  (`deleteClientDetachingSheets`) — the sheet is the record of a visit that happened, and
+  its header block already carries the firm name denormalised.
+
+Indexes (`ensureIndexes()`): unique on `jobSheets.jobNo` and `jobSheets.shareToken`;
+non-unique on `jobSheets.date`, `jobSheets.engineerId`, `jobSheets.clientId`,
+`jobLineItems.jobSheetId`, `jobLineItems.modelNo`, `faultyItems.jobSheetId`,
+`jobPhotos.jobSheetId`.
 
 ---
 
@@ -747,8 +708,8 @@ placeholders for all of them.
 Each phase should end in something runnable and demonstrable.
 
 **Phase 1 — Foundation**
-Next.js + TypeScript + Tailwind + shadcn/ui. Prisma with Postgres. Full schema from
-section 8. Seed script per section 11. `.env.example` per section 3.
+Next.js + TypeScript + Tailwind + shadcn/ui. MongoDB via the official driver. Collections
+and indexes from section 8. Seed script per section 11. `.env.example` per section 3.
 
 **Phase 2 — Engineer selection and job list**
 Engineer grid at `/`, `localStorage` persistence, `getCurrentEngineer()` helper. Job list

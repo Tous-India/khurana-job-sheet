@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { prisma } from '@/lib/prisma'
+import { findJobSheetById } from '@/lib/db'
 import { withDbErrors } from '@/lib/db-error'
 import { ShareActions } from '@/components/share-actions'
 
@@ -16,17 +16,7 @@ export default async function JobDetailPage({
   const { id } = await params
   const { created } = await searchParams
 
-  const job = await withDbErrors(() =>
-    prisma.jobSheet.findUnique({
-      where: { id },
-      include: {
-        engineer: { select: { name: true } },
-        lineItems: { orderBy: { sortOrder: 'asc' } },
-        faultyItems: { orderBy: { sortOrder: 'asc' } },
-        photos: { orderBy: { takenAt: 'asc' } },
-      },
-    }),
-  )
+  const job = await withDbErrors(() => findJobSheetById(id))
 
   if (!job) notFound()
 

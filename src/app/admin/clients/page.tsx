@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import { listClientsWithJobCounts } from '@/lib/db'
 import { withDbErrors } from '@/lib/db-error'
 import { AdminShell, EmptyState } from '@/components/admin-shell'
 import { deleteClient, saveClient } from '@/app/admin/actions'
@@ -6,12 +6,7 @@ import { deleteClient, saveClient } from '@/app/admin/actions'
 export const dynamic = 'force-dynamic'
 
 export default async function ClientsAdminPage() {
-  const clients = await withDbErrors(() =>
-    prisma.client.findMany({
-      orderBy: { firmName: 'asc' },
-      include: { _count: { select: { jobSheets: true } } },
-    }),
-  )
+  const clients = await withDbErrors(() => listClientsWithJobCounts())
 
   return (
     <AdminShell active="/admin/clients">

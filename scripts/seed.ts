@@ -1,10 +1,7 @@
 import { nanoid } from 'nanoid'
-import { PrismaPg } from '@prisma/adapter-pg'
-import { PrismaClient } from '../src/generated/prisma/client'
-
-const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
-})
+import 'dotenv/config'
+import { collections, ensureIndexes, getClient, ObjectId } from '../src/lib/mongo'
+import { createClient, createEngineer, insertJobSheet } from '../src/lib/db'
 
 // TODO: replace with actual engineer names from Khurana Electronics.
 // The names on the source paper sheets were handwritten and could not be read
@@ -133,8 +130,8 @@ const PLACEHOLDER_SIGNATURE =
 function daysAgo(n: number, hour = 11, minute = 30): Date {
   const d = new Date()
   d.setDate(d.getDate() - n)
-  // setUTCHours, not setHours: Postgres stores UTC, so setting local hours in
-  // IST (+5:30) shifts seeded visits outside business hours when read back.
+  // setUTCHours, not setHours: dates are stored as UTC, so setting local hours
+  // in IST (+5:30) shifts seeded visits outside business hours when read back.
   d.setUTCHours(hour, minute, 0, 0)
   return d
 }
@@ -147,28 +144,46 @@ function jobNoFor(date: Date, seq: number): string {
 }
 
 async function main() {
+  const c = await collections()
+
+  console.log('Ensuring indexes...')
+  // The unique index on jobNo is what makes concurrent submissions safe, so it
+  // has to exist before anything is written. MongoDB has no migrations to
+  // create it for us.
+  await ensureIndexes()
+
   console.log('Clearing existing data...')
-  // Children first — JobSheet cascades, but Engineer/Client/Product do not.
-  await prisma.jobPhoto.deleteMany()
-  await prisma.faultyItem.deleteMany()
-  await prisma.jobLineItem.deleteMany()
-  await prisma.jobSheet.deleteMany()
-  await prisma.product.deleteMany()
-  await prisma.client.deleteMany()
-  await prisma.engineer.deleteMany()
+  // Nothing cascades in MongoDB: every collection is cleared explicitly.
+  await Promise.all([
+    c.jobPhotos.deleteMany({}),
+    c.faultyItems.deleteMany({}),
+    c.jobLineItems.deleteMany({}),
+    c.jobSheets.deleteMany({}),
+    c.products.deleteMany({}),
+    c.clients.deleteMany({}),
+    c.engineers.deleteMany({}),
+  ])
 
   console.log('Seeding engineers...')
-  const engineers = await Promise.all(
-    ENGINEERS.map((e) => prisma.engineer.create({ data: e })),
+  for (const e of ENGINEERS) await createEngineer(e)
+  const engineers = (await c.engineers.find().sort({ name: 1 }).toArray()).map(
+    (d) => ({ id: d._id.toString(), name: d.name }),
   )
 
   console.log('Seeding clients...')
-  const clients = await Promise.all(
-    CLIENTS.map((c) => prisma.client.create({ data: c })),
-  )
+  const clients = await Promise.all(CLIENTS.map((x) => createClient(x)))
 
   console.log('Seeding products...')
-  await prisma.product.createMany({ data: PRODUCTS })
+  await c.products.insertMany(
+    PRODUCTS.map((p) => ({
+      _id: new ObjectId(),
+      name: p.name,
+      modelNo: p.modelNo ?? null,
+      brand: p.brand ?? null,
+      category: p.category ?? null,
+      active: true,
+    })),
+  )
 
   console.log('Seeding job sheets...')
 
@@ -271,46 +286,46 @@ async function main() {
     const seq = (seqByDay.get(dayKey) ?? 0) + 1
     seqByDay.set(dayKey, seq)
 
-    await prisma.jobSheet.create({
-      data: {
-        jobNo: jobNoFor(date, seq),
-        shareToken: nanoid(21),
-        date,
-        dateOfWorkDone: date,
-        engineerId: s.engineer.id,
-        clientId: s.client.id,
-        siteFirmName: s.client.firmName,
-        contactPerson: s.client.contactPerson ?? '',
-        mobileNo: s.client.phone ?? '',
-        address: s.client.address ?? '',
-        handoverReport: s.handoverReport,
-        remarks: s.remarks,
-        clientOtherMaterials: s.clientOtherMaterials,
-        signatureData: PLACEHOLDER_SIGNATURE,
-        latitude: jitter(SONIPAT.lat, i),
-        longitude: jitter(SONIPAT.lng, i),
-        locationAddress: `${s.client.address}`,
-        lineItems: {
-          create: s.lineItems.map((li, idx) => ({ ...li, sortOrder: idx + 1 })),
-        },
-        faultyItems: {
-          create: s.faultyItems.map((fi, idx) => ({
-            ...fi,
-            sortOrder: idx + 1,
-            clientName: s.client.firmName,
-          })),
-        },
-        ...('photos' in s && s.photos
-          ? {
-              photos: {
-                create: s.photos.map((ph, idx) => ({
-                  ...ph,
-                  takenAt: daysAgo(sheetDay, 10 + (i % 4) * 2, 20 + idx),
-                })),
-              },
-            }
-          : {}),
-      },
+    await insertJobSheet({
+      jobNo: jobNoFor(date, seq),
+      shareToken: nanoid(21),
+      date,
+      dateOfWorkDone: date,
+      engineerId: s.engineer.id,
+      clientId: s.client.id,
+      siteFirmName: s.client.firmName,
+      contactPerson: s.client.contactPerson ?? '',
+      mobileNo: s.client.phone ?? '',
+      address: s.client.address ?? '',
+      handoverReport: s.handoverReport,
+      remarks: s.remarks,
+      clientOtherMaterials: s.clientOtherMaterials,
+      signatureData: PLACEHOLDER_SIGNATURE,
+      latitude: jitter(SONIPAT.lat, i),
+      longitude: jitter(SONIPAT.lng, i),
+      locationAddress: `${s.client.address}`,
+      lineItems: s.lineItems.map((li, idx) => ({
+        sortOrder: idx + 1,
+        description: li.description,
+        modelNo: li.modelNo ?? null,
+        qty: li.qty ?? 0,
+        returnMat: li.returnMat ?? 0,
+        consumedMat: li.consumedMat ?? 0,
+      })),
+      faultyItems: s.faultyItems.map((fi, idx) => ({
+        sortOrder: idx + 1,
+        description: fi.description,
+        qty: fi.qty ?? 0,
+        clientName: s.client.firmName,
+      })),
+      photos:
+        'photos' in s && s.photos
+          ? s.photos.map((ph, idx) => ({
+              url: ph.url,
+              caption: ph.caption ?? null,
+              takenAt: daysAgo(sheetDay, 10 + (i % 4) * 2, 20 + idx),
+            }))
+          : [],
     })
   }
 
@@ -325,4 +340,7 @@ main()
     console.error(e)
     process.exit(1)
   })
-  .finally(() => prisma.$disconnect())
+  .finally(async () => {
+    const client = await getClient()
+    await client.close()
+  })

@@ -1,7 +1,17 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { prisma } from '@/lib/prisma'
+import {
+  createClient,
+  createEngineer,
+  createProduct,
+  deleteClientDetachingSheets,
+  findEngineer,
+  findProduct,
+  updateClient,
+  updateEngineer,
+  updateProduct,
+} from '@/lib/db'
 
 /**
  * Admin CRUD. The owner uses these, never the field engineer, so they are
@@ -19,12 +29,9 @@ export async function saveEngineer(formData: FormData) {
   if (!name) return
 
   if (id) {
-    await prisma.engineer.update({
-      where: { id },
-      data: { name, phone: phone || null },
-    })
+    await updateEngineer(id, { name, phone: phone || null })
   } else {
-    await prisma.engineer.create({ data: { name, phone: phone || null } })
+    await createEngineer({ name, phone: phone || null })
   }
   revalidatePath('/admin/engineers')
   revalidatePath('/')
@@ -32,13 +39,10 @@ export async function saveEngineer(formData: FormData) {
 
 export async function toggleEngineer(formData: FormData) {
   const id = String(formData.get('id'))
-  const engineer = await prisma.engineer.findUnique({ where: { id } })
+  const engineer = await findEngineer(id)
   if (!engineer) return
   // Deactivate rather than delete — old job sheets still reference them.
-  await prisma.engineer.update({
-    where: { id },
-    data: { active: !engineer.active },
-  })
+  await updateEngineer(id, { active: !engineer.active })
   revalidatePath('/admin/engineers')
   revalidatePath('/')
 }
@@ -56,23 +60,16 @@ export async function saveClient(formData: FormData) {
     address: String(formData.get('address') ?? '').trim() || null,
   }
 
-  if (id) await prisma.client.update({ where: { id }, data })
-  else await prisma.client.create({ data })
+  if (id) await updateClient(id, data)
+  else await createClient(data)
   revalidatePath('/admin/clients')
 }
 
 export async function deleteClient(formData: FormData) {
   const id = String(formData.get('id'))
   // Job sheets keep a denormalised copy of the firm name, so removing a client
-  // never blanks an existing sheet.
-  const used = await prisma.jobSheet.count({ where: { clientId: id } })
-  if (used > 0) {
-    await prisma.jobSheet.updateMany({
-      where: { clientId: id },
-      data: { clientId: null },
-    })
-  }
-  await prisma.client.delete({ where: { id } })
+  // never blanks an existing sheet — the reference is cleared, the sheet stays.
+  await deleteClientDetachingSheets(id)
   revalidatePath('/admin/clients')
 }
 
@@ -89,20 +86,17 @@ export async function saveProduct(formData: FormData) {
     category: String(formData.get('category') ?? '').trim() || null,
   }
 
-  if (id) await prisma.product.update({ where: { id }, data })
-  else await prisma.product.create({ data })
+  if (id) await updateProduct(id, data)
+  else await createProduct(data)
   revalidatePath('/admin/products')
   revalidatePath('/jobs/new')
 }
 
 export async function toggleProduct(formData: FormData) {
   const id = String(formData.get('id'))
-  const product = await prisma.product.findUnique({ where: { id } })
+  const product = await findProduct(id)
   if (!product) return
-  await prisma.product.update({
-    where: { id },
-    data: { active: !product.active },
-  })
+  await updateProduct(id, { active: !product.active })
   revalidatePath('/admin/products')
   revalidatePath('/jobs/new')
 }

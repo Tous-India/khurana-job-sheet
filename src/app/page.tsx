@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import { listActiveEngineers } from '@/lib/db'
 import { withDbErrors } from '@/lib/db-error'
 import { EngineerPicker } from '@/components/engineer-picker'
 
@@ -7,13 +7,7 @@ import { EngineerPicker } from '@/components/engineer-picker'
 export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
-  const engineers = await withDbErrors(() =>
-    prisma.engineer.findMany({
-      where: { active: true },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true },
-    }),
-  )
+  const engineers = await withDbErrors(() => listActiveEngineers())
 
   return (
     <main className="flex-1 px-5 py-10 max-w-md mx-auto w-full">

@@ -1,11 +1,12 @@
-import { prisma } from '@/lib/prisma'
+import { countJobSheetsBetween } from '@/lib/db'
+import { isDuplicateKeyError } from '@/lib/mongo'
 
 /**
  * Job numbers are KE-YYYYMMDD-NNN with NNN a per-day sequence (README 5.1).
  *
  * The sequence is derived by counting that day's rows, so two engineers
- * submitting at the same moment would compute the same number. `jobNo` is
- * @unique, so the loser hits Prisma's P2002 unique-constraint error; we
+ * submitting at the same moment would compute the same number. `jobNo` carries
+ * a unique index, so the loser hits MongoDB's duplicate-key error (11000); we
  * recompute and retry rather than surfacing a failure to the engineer.
  */
 const MAX_ATTEMPTS = 5
@@ -17,14 +18,6 @@ function formatJobNo(date: Date, seq: number): string {
   return `KE-${y}${m}${d}-${String(seq).padStart(3, '0')}`
 }
 
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: string }).code === 'P2002'
-  )
-}
 
 /**
  * Runs `create` with a freshly computed job number, retrying on collision.
@@ -43,16 +36,14 @@ export async function createWithJobNumber<T>(
   let lastError: unknown
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const countToday = await prisma.jobSheet.count({
-      where: { date: { gte: dayStart, lt: dayEnd } },
-    })
+    const countToday = await countJobSheetsBetween(dayStart, dayEnd)
     // On retry, step past the number that just collided.
     const jobNo = formatJobNo(date, countToday + 1 + attempt)
 
     try {
       return await create(jobNo)
     } catch (error) {
-      if (!isUniqueViolation(error)) throw error
+      if (!isDuplicateKeyError(error)) throw error
       lastError = error
     }
   }

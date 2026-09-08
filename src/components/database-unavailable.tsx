@@ -40,10 +40,10 @@ const COPY: Record<DbErrorKind, Copy> = {
     action: 'Verify the database credentials in the deployment environment.',
   },
   'not-migrated': {
-    headline: 'The job sheet service has no data tables yet.',
+    headline: 'The job sheet service has no data yet.',
     detail:
-      'The database connected successfully but is empty — the schema has never been created. This is a setup step, not a fault.',
-    action: 'Run the database migrations against this database, then reload.',
+      'The database connected successfully but is empty — it has never been seeded. This is a setup step, not a fault.',
+    action: 'Run the seed script against this database, then reload.',
   },
   exhausted: {
     headline: 'The job sheet service is temporarily overloaded.',

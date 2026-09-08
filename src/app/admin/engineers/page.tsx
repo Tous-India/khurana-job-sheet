@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import { listEngineersWithJobCounts } from '@/lib/db'
 import { withDbErrors } from '@/lib/db-error'
 import { AdminShell, EmptyState } from '@/components/admin-shell'
 import { saveEngineer, toggleEngineer } from '@/app/admin/actions'
@@ -6,12 +6,7 @@ import { saveEngineer, toggleEngineer } from '@/app/admin/actions'
 export const dynamic = 'force-dynamic'
 
 export default async function EngineersAdminPage() {
-  const engineers = await withDbErrors(() =>
-    prisma.engineer.findMany({
-      orderBy: [{ active: 'desc' }, { name: 'asc' }],
-      include: { _count: { select: { jobSheets: true } } },
-    }),
-  )
+  const engineers = await withDbErrors(() => listEngineersWithJobCounts())
 
   return (
     <AdminShell active="/admin/engineers">

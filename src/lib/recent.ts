@@ -1,4 +1,9 @@
-import { prisma } from '@/lib/prisma'
+import {
+  countLineItemUsageByModel,
+  lastVisitByClient,
+  listActiveProducts,
+  listClients,
+} from '@/lib/db'
 
 /**
  * Recent-first ordering (design principle: the right answer should usually be
@@ -20,21 +25,12 @@ export type ClientOption = {
 export async function getClientsRecentFirst(
   engineerId: string | null,
 ): Promise<ClientOption[]> {
-  const clients = await prisma.client.findMany({
-    select: {
-      id: true,
-      firmName: true,
-      contactPerson: true,
-      phone: true,
-      address: true,
-      jobSheets: {
-        where: engineerId ? { engineerId } : undefined,
-        select: { date: true },
-        orderBy: { date: 'desc' },
-        take: 1,
-      },
-    },
-  })
+  // Two queries rather than a per-client subquery: the clients, and the most
+  // recent visit for each, grouped in the database.
+  const [clients, lastVisit] = await Promise.all([
+    listClients(),
+    lastVisitByClient(engineerId),
+  ])
 
   return clients
     .map((c) => ({
@@ -43,7 +39,7 @@ export async function getClientsRecentFirst(
       contactPerson: c.contactPerson,
       phone: c.phone,
       address: c.address,
-      lastUsedAt: c.jobSheets[0]?.date ?? null,
+      lastUsedAt: lastVisit.get(c.id) ?? null,
     }))
     .sort((a, b) => {
       // Sites this engineer has visited float to the top, newest first;
@@ -66,28 +62,20 @@ export type ProductOption = {
 }
 
 export async function getProductsRecentFirst(): Promise<ProductOption[]> {
-  const [products, usage] = await Promise.all([
-    prisma.product.findMany({
-      where: { active: true },
-      select: { id: true, name: true, modelNo: true, brand: true, category: true },
-    }),
+  const [products, countByModel] = await Promise.all([
+    listActiveProducts(),
     // Line items store free text rather than a product id (the engineer may
     // type an unlisted item), so popularity is counted by model number.
-    prisma.jobLineItem.groupBy({
-      by: ['modelNo'],
-      _count: { modelNo: true },
-    }),
+    countLineItemUsageByModel(),
   ])
-
-  const countByModel = new Map(
-    usage
-      .filter((u): u is typeof u & { modelNo: string } => Boolean(u.modelNo))
-      .map((u) => [u.modelNo, u._count.modelNo]),
-  )
 
   return products
     .map((p) => ({
-      ...p,
+      id: p.id,
+      name: p.name,
+      modelNo: p.modelNo,
+      brand: p.brand,
+      category: p.category,
       useCount: p.modelNo ? (countByModel.get(p.modelNo) ?? 0) : 0,
     }))
     .sort((a, b) => {
